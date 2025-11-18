@@ -1,4 +1,3 @@
-#include <clocale>
 #include <cstdlib>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -9,6 +8,8 @@
 #include <unistd.h>
 #include <stdint.h>
 
+#include <iostream>
+#include <algorithm>
 #include <thread>
 #include <mutex>
 #include <vector>
@@ -32,6 +33,21 @@ std::mutex usersLock;
 
 unsigned int rngSeed = 916293128;
 std::mutex rngSeedLock;
+
+std::mutex logLock;
+
+#define LOG 1
+
+#if LOG
+#define log(info, args) \
+    do { \
+        logLock.lock(); \
+        std::cout << "[" << info->username << "#" << info->userId << "]: " << args << std::endl; \
+        logLock.unlock(); \
+    } while(0);
+#else
+#define log(info, args)
+#endif
 
 void threadRoutine(int sock) {
     UserInfo *info = (UserInfo *)calloc(sizeof(UserInfo), 1);
@@ -84,6 +100,8 @@ void threadRoutine(int sock) {
                         users.push_back(info);
                     usersLock.unlock();
 
+                    log(info, "Logged in");
+
                     struct Header response = {
                         .type = PACKET_SERVER_LOGIN,
                         .server_login = {
@@ -119,6 +137,8 @@ void threadRoutine(int sock) {
                         },
                     };
 
+                    log(info, "Broadcasted a message to everyone");
+
                     usersLock.lock();
                     {
                         for(auto &user : users) {
@@ -128,6 +148,8 @@ void threadRoutine(int sock) {
                                 write(user->socket, &notification, sizeof(Header));
                                 write(user->socket, message, packet.messageLength);
                             user->lock.unlock();
+
+                            log(user, "Received a broadcasted message");
                         }
                     }
                     usersLock.unlock();
@@ -173,6 +195,8 @@ void threadRoutine(int sock) {
                     }
                     usersLock.unlock();
 
+                    log(info, "Requested the user list. Amount: " << response.server_listUsers.amount);
+
                     info->lock.lock();
                         write(info->socket, &response, sizeof(Header));
                         write(info->socket, array, sizeof(UserId) * response.server_listUsers.amount);
@@ -200,6 +224,13 @@ void threadRoutine(int sock) {
                         }
                     }
                     usersLock.unlock();
+
+                    if(username) {
+                        log(info, "Requested the username for user id " << packet.userId << ". Username: \"" << username << "\"");
+                    }
+                    else {
+                        log(info, "Requested the username for user id " << packet.userId << ". Invalid user id");
+                    }
 
                     info->lock.lock();
                         if(!username) {
@@ -268,12 +299,21 @@ void threadRoutine(int sock) {
                                     write(user->socket, message, packet.messageLength);
                                 }
                                 user->lock.unlock();
+
+                                break;
                             }
                         }
                     }
                     usersLock.unlock();
 
                     free(message);
+
+                    if(success) {
+                        log(info, "Sent a message to user id " << packet.userId);
+                    }
+                    else {
+                        log(info, "Sent a message to user id " << packet.userId << ", but such user didn't exist");
+                    }
 
                     info->lock.lock();
                     {
@@ -308,6 +348,16 @@ void threadRoutine(int sock) {
     }
 
 cleanup:
+
+    if(!notLoggedIn) {
+        log(info, "Shutting down");
+    }
+
+    usersLock.lock();
+        users.erase(std::remove(users.begin(), users.end(), info), users.end());
+    usersLock.unlock();
+    free(info);
+
     close(sock);
     return;
 }
