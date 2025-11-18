@@ -60,6 +60,11 @@ int main(void) {
         }
 
         printf("CLIENT CONNECTED\n");
+
+        char buffer[512] = {0};
+        read(clientSock, buffer, 512);
+
+        printf("MESSAGE: %s\n", buffer);
     }
 
     close(sock);
