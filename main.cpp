@@ -100,6 +100,8 @@ void threadRoutine(int sock) {
                         users.push_back(info);
                     usersLock.unlock();
 
+                    notLoggedIn = false;
+
                     log(info, "Logged in");
 
                     struct Header response = {
